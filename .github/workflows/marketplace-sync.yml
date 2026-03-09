@@ -21,6 +21,7 @@ jobs:
 
       - name: Create Credentials File
         run: |
+          # Use the path that matches your project structure
           echo '${{ secrets.GOOGLE_JSON }}' > AllMarketPlacesCombined/google-credentials.json
 
       - name: Run Application
