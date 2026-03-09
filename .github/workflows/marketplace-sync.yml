@@ -3,17 +3,15 @@ name: Marketplace Sync Automation
 on:
   push:
     branches: [ "master", "main" ]
-  pull_request:  # <--- MAKE SURE THIS LINE IS HERE
+  pull_request:
     branches: [ "master", "main" ]
   schedule:
     - cron: '0 5 * * *' # 09:00 AM Yerevan Time
-  workflow_dispatch: # Allows manual runs
+  workflow_dispatch: 
 
 jobs:
-  build-and-test:
-    name: Build and Sync
+  build-and-run:
     runs-on: ubuntu-latest
-    
     defaults:
       run:
         working-directory: AllMarketPlacesCombined
@@ -27,16 +25,12 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      - name: Restore Dependencies
-        run: dotnet restore
+      - name: Create Credentials File
+        run: |
+          # This decodes the secret back into the exact original JSON file
+          echo "${{ secrets.GOOGLE_JSON }}" | base64 --decode > google-credentials.json
 
-      - name: Build Project
-        run: dotnet build --no-restore
-
-      # This step ONLY runs on schedule or manual trigger, NOT on every push
-      # This prevents your Google Sheet from being spammed with test data
-      - name: Run Sync Application
-        if: github.event_name != 'push' 
+      - name: Run Application
         env:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_NAME: ${{ secrets.SHEET_NAME }}
@@ -44,14 +38,4 @@ jobs:
           OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
           OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
-          GOOGLE_JSON: ${{ secrets.GOOGLE_JSON }}
-        run: |
-          echo '${{ secrets.GOOGLE_JSON }}' | base64 --decode > google-credentials.json
-          dotnet run --no-build
-
-      - name: Upload Sync Log
-        if: github.event_name != 'push' && always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: marketplace-sync-log
-          path: AllMarketPlacesCombined/sync_log.txt
+        run: dotnet run
