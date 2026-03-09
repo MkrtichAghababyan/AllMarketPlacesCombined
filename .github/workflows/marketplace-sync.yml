@@ -27,9 +27,9 @@ jobs:
 
       - name: Create Credentials File
         run: |
-          # This decodes the secret back into the exact original JSON file
-          echo "${{ secrets.GOOGLE_JSON }}" | base64 --decode > google-credentials.json
-
+          # Use the strict -d flag and no-newline echo
+          echo -n "${{ secrets.GOOGLE_JSON }}" | base64 -d > google-credentials.json
+          
       - name: Run Application
         env:
           SHEET_ID: ${{ secrets.SHEET_ID }}
