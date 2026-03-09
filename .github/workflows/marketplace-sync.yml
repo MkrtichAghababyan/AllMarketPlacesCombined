@@ -1,0 +1,34 @@
+name: Marketplace Sync Automation
+
+on:
+  schedule:
+    # This is the change: '0 4 * * *' means every day at 4:00 AM UTC
+    - cron: '0 11 * * *' 
+  workflow_dispatch: # Keeps the manual "Run" button active
+
+jobs:
+  build-and-run:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v3
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Create Credentials File
+        run: |
+          echo '${{ secrets.GOOGLE_JSON }}' > google-credentials.json
+
+      - name: Run Application
+        env:
+          SHEET_ID: ${{ secrets.SHEET_ID }}
+          SHEET_NAME: ${{ secrets.SHEET_NAME }}
+          WB_TOKEN: ${{ secrets.WB_TOKEN }}
+          OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
+          OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
+          YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
+        run: dotnet run
