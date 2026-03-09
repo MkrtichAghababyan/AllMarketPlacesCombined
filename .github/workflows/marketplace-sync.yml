@@ -9,20 +9,24 @@ on:
 jobs:
   build-and-run:
     runs-on: ubuntu-latest
+    # This tells EVERY step to start inside your project folder
+    defaults:
+      run:
+        working-directory: ./AllMarketPlacesCombined
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
 
       - name: Create Credentials File
         run: |
-          # Use only ONE folder level
-          echo '${{ secrets.GOOGLE_JSON }}' > AllMarketPlacesCombined/google-credentials.json
+          # Since we are already in the folder, no path is needed
+          echo '${{ secrets.GOOGLE_JSON }}' > google-credentials.json
 
       - name: Run Application
         env:
@@ -32,9 +36,15 @@ jobs:
           OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
           OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
-        run: dotnet run --project AllMarketPlacesCombined/AllMarketPlacesCombined.csproj
-        
+        # Simple command because we are already in the right place
+        run: dotnet run
+
       - name: Upload Sync Log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-sync-log
+          path: AllMarketPlacesCombined/sync_log.txt
         uses: actions/upload-artifact@v4
         with:
           name: marketplace-sync-log
