@@ -2,7 +2,9 @@ name: Marketplace Sync Automation
 
 on:
   push:
-    branches: [ "master", "main" ] # Runs a build check on every push
+    branches: [ "master", "main" ]
+  pull_request:  # <--- MAKE SURE THIS LINE IS HERE
+    branches: [ "master", "main" ]
   schedule:
     - cron: '0 5 * * *' # 09:00 AM Yerevan Time
   workflow_dispatch: # Allows manual runs
