@@ -21,7 +21,7 @@ jobs:
 
       - name: Create Credentials File
         run: |
-          echo '${{ secrets.GOOGLE_JSON }}' > google-credentials.json
+          echo '${{ secrets.GOOGLE_JSON }}' > AllMarketPlacesCombined/google-credentials.json
 
       - name: Run Application
         env:
@@ -31,7 +31,8 @@ jobs:
           OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
           OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
-        run: dotnet run
+        # Added --project and the folder name here:
+        run: dotnet run --project AllMarketPlacesCombined/AllMarketPlacesCombined.csproj
         
       - name: Upload Sync Log
         uses: actions/upload-artifact@v4
