@@ -30,32 +30,28 @@ namespace AllMarketPlacesCombined.Services.GoogleSheetService
 
         private async Task ProcessMarketplaceDataAsync(string spreadsheetId, string sheetName, string stockCol, string avgCol, List<MarketplaceDataDto> data)
         {
+            // 1. Read the existing sheet to find current SKU positions
             var readRequest = _sheetsService.Spreadsheets.Values.Get(spreadsheetId, $"{sheetName}!A:M");
             var readResponse = await readRequest.ExecuteAsync();
             var existingRows = readResponse.Values ?? new List<IList<object>>();
 
             var skuMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-            int totalRowIndex = -1;
 
-            for (int i = 0; i < existingRows.Count; i++)
+            // Map existing SKUs to their row index
+            for (int i = 1; i < existingRows.Count; i++) // Skip header row (0)
             {
                 if (existingRows[i].Count > 0)
                 {
-                    string cellValue = existingRows[i][0]?.ToString()?.Trim();
-                    if (string.IsNullOrEmpty(cellValue)) continue;
-
-                    if (cellValue.Equals("тотал", StringComparison.OrdinalIgnoreCase))
+                    string sku = existingRows[i][0]?.ToString()?.Trim();
+                    if (!string.IsNullOrEmpty(sku))
                     {
-                        totalRowIndex = i;
-                    }
-                    else if (i > 0) // Skip header
-                    {
-                        skuMap[cellValue] = i;
+                        skuMap[sku] = i;
                     }
                 }
             }
 
             var batchUpdateRequest = new BatchUpdateValuesRequest { ValueInputOption = "USER_ENTERED", Data = new List<ValueRange>() };
+            int nextNewRowIndex = existingRows.Count; // This points to the first empty row at the bottom
 
             foreach (var item in data)
             {
@@ -63,7 +59,7 @@ namespace AllMarketPlacesCombined.Services.GoogleSheetService
 
                 if (skuMap.TryGetValue(item.OfferId, out int rowIndex))
                 {
-                    // Update existing SKU
+                    // --- UPDATE EXISTING SKU ---
                     int excelRow = rowIndex + 1;
                     batchUpdateRequest.Data.Add(new ValueRange
                     {
@@ -73,66 +69,35 @@ namespace AllMarketPlacesCombined.Services.GoogleSheetService
                 }
                 else if (item.Stock > 0 || avg > 0)
                 {
-                    // Add NEW SKU before the Total row
-                    int insertAtRowIndex = (totalRowIndex != -1) ? totalRowIndex : existingRows.Count;
-                    int excelRow = insertAtRowIndex + 1;
+                    // --- ADD NEW SKU AT THE VERY END ---
+                    int excelRow = nextNewRowIndex + 1;
 
-                    var newRowValues = new List<object>(Enumerable.Repeat<object>(0, 13));
+                    var newRowValues = new List<object>(Enumerable.Repeat<object>("", 13));
                     newRowValues[0] = item.OfferId;
 
+                    // Place data in the correct columns based on the marketplace
                     if (stockCol == "B") { newRowValues[1] = item.Stock; newRowValues[2] = avg; }
                     else if (stockCol == "E") { newRowValues[4] = item.Stock; newRowValues[5] = avg; }
                     else if (stockCol == "H") { newRowValues[7] = item.Stock; newRowValues[8] = avg; }
 
-                    // Standard row logic
-                    newRowValues[3] = $"=IF(C{excelRow}>0; B{excelRow}/C{excelRow}; 0)";
-                    newRowValues[6] = $"=IF(F{excelRow}>0; E{excelRow}/F{excelRow}; 0)";
-                    newRowValues[9] = $"=IF(I{excelRow}>0; H{excelRow}/I{excelRow}; 0)";
-                    newRowValues[10] = $"=B{excelRow}+E{excelRow}+H{excelRow}";
-                    newRowValues[11] = $"=C{excelRow}+F{excelRow}+I{excelRow}";
-                    newRowValues[12] = $"=IF(L{excelRow}>0; K{excelRow}/L{excelRow}; 0)";
+                    // Add Formulas for the new row
+                    newRowValues[3] = $"=IF(C{excelRow}>0; B{excelRow}/C{excelRow}; 0)"; // WB Days
+                    newRowValues[6] = $"=IF(F{excelRow}>0; E{excelRow}/F{excelRow}; 0)"; // Ozon Days
+                    newRowValues[9] = $"=IF(I{excelRow}>0; H{excelRow}/I{excelRow}; 0)"; // Yandex Days
+                    newRowValues[10] = $"=B{excelRow}+E{excelRow}+H{excelRow}";         // Total Stock
+                    newRowValues[11] = $"=C{excelRow}+F{excelRow}+I{excelRow}";         // Total Avg
+                    newRowValues[12] = $"=IF(L{excelRow}>0; K{excelRow}/L{excelRow}; 0)"; // Total Days
 
-                    // We use BatchUpdate to "Insert" a row if total exists, or just write if it doesn't
                     batchUpdateRequest.Data.Add(new ValueRange
                     {
                         Range = $"{sheetName}!A{excelRow}:M{excelRow}",
                         Values = new List<IList<object>> { newRowValues }
                     });
 
-                    // Shift the "Total" index down because we just inserted a row above it
-                    if (totalRowIndex != -1) totalRowIndex++;
-                    skuMap[item.OfferId] = insertAtRowIndex;
-                    existingRows.Insert(insertAtRowIndex, newRowValues);
+                    // Update our local tracking so the next new item goes below this one
+                    skuMap[item.OfferId] = nextNewRowIndex;
+                    nextNewRowIndex++;
                 }
-            }
-
-            // Update the Total Row formulas to include the new range
-            if (totalRowIndex != -1)
-            {
-                int totalExcelRow = totalRowIndex + 1;
-                var totalRowValues = new List<object>(new object[13]);
-                totalRowValues[0] = "Тотал";
-
-                // Columns: B, C, E, F, H, I, K, L (Summable columns)
-                string[] colsToSum = { "B", "C", "E", "F", "H", "I", "K", "L" };
-                int[] colIndices = { 1, 2, 4, 5, 7, 8, 10, 11 };
-
-                for (int i = 0; i < colsToSum.Length; i++)
-                {
-                    batchUpdateRequest.Data.Add(new ValueRange
-                    {
-                        Range = $"{sheetName}!{colsToSum[i]}{totalExcelRow}",
-                        Values = new List<IList<object>> { new List<object> { $"=SUM({colsToSum[i]}2:{colsToSum[i]}{totalExcelRow - 1})" } }
-                    });
-                }
-
-                // Calculated columns for Total row (D, G, J, M)
-                batchUpdateRequest.Data.Add(new ValueRange
-                {
-                    Range = $"{sheetName}!D{totalExcelRow}",
-                    Values = new List<IList<object>> { new List<object> { $"=IF(C{totalExcelRow}>0; B{totalExcelRow}/C{totalExcelRow}; 0)" } }
-                });
-                // ... (Repeated logic for G, J, M if needed)
             }
 
             if (batchUpdateRequest.Data.Count > 0)
