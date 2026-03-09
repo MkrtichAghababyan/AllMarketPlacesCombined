@@ -1,15 +1,17 @@
 name: Marketplace Sync Automation
 
 on:
+  push:
+    branches: [ "master", "main" ] # Runs a build check on every push
   schedule:
-    - cron: '0 5 * * *' # 15:00 Yerevan Time
-  workflow_dispatch: 
+    - cron: '0 5 * * *' # 09:00 AM Yerevan Time
+  workflow_dispatch: # Allows manual runs
 
 jobs:
-  build-and-run:
+  build-and-test:
+    name: Build and Sync
     runs-on: ubuntu-latest
     
-    # This ensures all commands below run INSIDE your project folder
     defaults:
       run:
         working-directory: AllMarketPlacesCombined
@@ -23,12 +25,16 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
-      - name: Create Credentials File
-        run: |
-          # No path needed here because of the 'defaults' setting above
-          echo '${{ secrets.GOOGLE_JSON }}' > google-credentials.json
+      - name: Restore Dependencies
+        run: dotnet restore
 
-      - name: Run Application
+      - name: Build Project
+        run: dotnet build --no-restore
+
+      # This step ONLY runs on schedule or manual trigger, NOT on every push
+      # This prevents your Google Sheet from being spammed with test data
+      - name: Run Sync Application
+        if: github.event_name != 'push' 
         env:
           SHEET_ID: ${{ secrets.SHEET_ID }}
           SHEET_NAME: ${{ secrets.SHEET_NAME }}
@@ -36,12 +42,14 @@ jobs:
           OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
           OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
-        run: dotnet run
+          GOOGLE_JSON: ${{ secrets.GOOGLE_JSON }}
+        run: |
+          echo "$GOOGLE_JSON" > google-credentials.json
+          dotnet run --no-build
 
       - name: Upload Sync Log
-        if: always() # Run even if the program crashes
+        if: github.event_name != 'push' && always()
         uses: actions/upload-artifact@v4
         with:
           name: marketplace-sync-log
-          # Point to the log file inside the project folder
           path: AllMarketPlacesCombined/sync_log.txt
