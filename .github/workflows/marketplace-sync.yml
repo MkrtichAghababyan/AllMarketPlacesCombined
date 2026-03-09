@@ -2,7 +2,7 @@ name: Marketplace Sync Automation
 
 on:
   schedule:
-    - cron: '0 11 * * *' # 15:00 Yerevan Time
+    - cron: '0 5 * * *' # 15:00 Yerevan Time
   workflow_dispatch: 
 
 jobs:
