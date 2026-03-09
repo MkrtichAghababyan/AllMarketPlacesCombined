@@ -31,7 +31,7 @@ namespace AllMarketPlacesCombined
             Log("=== STARTING MARKETPLACE SYNC ===");
 
             // --- CONFIGURATION (GitHub Secrets or Local) ---
-            string credentialsFilePath = "credentials.json";
+            string credentialsFilePath = "google-credentials.json";
             // Professional and Secure way
             string spreadsheetId = Environment.GetEnvironmentVariable("SHEET_ID") ?? "PASTE_ID_ONLY_FOR_LOCAL_TEST_THEN_DELETE";
             string sheetName = Environment.GetEnvironmentVariable("SHEET_NAME") ?? "Лист1";
