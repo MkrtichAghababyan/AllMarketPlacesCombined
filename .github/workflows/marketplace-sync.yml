@@ -21,7 +21,7 @@ jobs:
 
       - name: Create Credentials File
         run: |
-          # Use the path that matches your project structure
+          # Use only ONE folder level
           echo '${{ secrets.GOOGLE_JSON }}' > AllMarketPlacesCombined/google-credentials.json
 
       - name: Run Application
@@ -32,7 +32,6 @@ jobs:
           OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
           OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
-        # Added --project and the folder name here:
         run: dotnet run --project AllMarketPlacesCombined/AllMarketPlacesCombined.csproj
         
       - name: Upload Sync Log
