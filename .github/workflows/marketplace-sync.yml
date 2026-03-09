@@ -32,3 +32,10 @@ jobs:
           OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
         run: dotnet run
+        
+      - name: Upload Sync Log
+        uses: actions/upload-artifact@v4
+        with:
+          name: marketplace-sync-log
+          path: sync_log.txt
+          retention-days: 7 # Keeps the log for 7 days
