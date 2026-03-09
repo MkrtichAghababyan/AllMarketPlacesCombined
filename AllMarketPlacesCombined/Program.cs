@@ -32,13 +32,14 @@ namespace AllMarketPlacesCombined
 
             // --- CONFIGURATION (GitHub Secrets or Local) ---
             string credentialsFilePath = "credentials.json";
-            string spreadsheetId = Environment.GetEnvironmentVariable("SHEET_ID") ?? "1DIQ5Cqt-2jpJJmdjrNpba-HLhTNRJFeRu-heiN4wck4";
+            // Professional and Secure way
+            string spreadsheetId = Environment.GetEnvironmentVariable("SHEET_ID") ?? "PASTE_ID_ONLY_FOR_LOCAL_TEST_THEN_DELETE";
             string sheetName = Environment.GetEnvironmentVariable("SHEET_NAME") ?? "Лист1";
 
-            string wbToken = Environment.GetEnvironmentVariable("WB_TOKEN") ?? "YOUR_LOCAL_WB_TOKEN";
-            string ozonClientId = Environment.GetEnvironmentVariable("OZON_CLIENT_ID") ?? "1527418";
-            string ozonApiKey = Environment.GetEnvironmentVariable("OZON_API_KEY") ?? "69f6c9a9-bcee-41c7-9303-3fabefd2e918";
-            string yandexToken = Environment.GetEnvironmentVariable("YANDEX_TOKEN") ?? "ACMA:fGgY4Rs0VXHz5hwj7Tj03025XcJtilYSkm6TwoI8:1af126e3";
+            string wbToken = Environment.GetEnvironmentVariable("WB_TOKEN") ?? "";
+            string ozonClientId = Environment.GetEnvironmentVariable("OZON_CLIENT_ID") ?? "";
+            string ozonApiKey = Environment.GetEnvironmentVariable("OZON_API_KEY") ?? "";
+            string yandexToken = Environment.GetEnvironmentVariable("YANDEX_TOKEN") ?? "";
 
             using var httpClient = new HttpClient();
 
