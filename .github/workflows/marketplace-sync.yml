@@ -46,7 +46,7 @@ jobs:
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
           GOOGLE_JSON: ${{ secrets.GOOGLE_JSON }}
         run: |
-          echo '${{ secrets.GOOGLE_JSON }}' > google-credentials.json
+          echo '${{ secrets.GOOGLE_JSON }}' | base64 --decode > google-credentials.json
           dotnet run --no-build
 
       - name: Upload Sync Log
