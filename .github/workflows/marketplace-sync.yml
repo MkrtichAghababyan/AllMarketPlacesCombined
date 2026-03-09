@@ -2,26 +2,31 @@ name: Marketplace Sync Automation
 
 on:
   schedule:
-    # This is the change: '0 4 * * *' means every day at 4:00 AM UTC
-    - cron: '0 11 * * *' 
-  workflow_dispatch: # Keeps the manual "Run" button active
+    - cron: '0 5 * * *' # 15:00 Yerevan Time
+  workflow_dispatch: 
 
 jobs:
   build-and-run:
     runs-on: ubuntu-latest
+    
+    # This ensures all commands below run INSIDE your project folder
+    defaults:
+      run:
+        working-directory: AllMarketPlacesCombined
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v3
+        uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '9.0.x'
 
       - name: Create Credentials File
         run: |
-          echo '${{ secrets.GOOGLE_JSON }}' > AllMarketPlacesCombined/google-credentials.json
+          # No path needed here because of the 'defaults' setting above
+          echo '${{ secrets.GOOGLE_JSON }}' > google-credentials.json
 
       - name: Run Application
         env:
@@ -31,12 +36,12 @@ jobs:
           OZON_CLIENT_ID: ${{ secrets.OZON_CLIENT_ID }}
           OZON_API_KEY: ${{ secrets.OZON_API_KEY }}
           YANDEX_TOKEN: ${{ secrets.YANDEX_TOKEN }}
-        # Added --project and the folder name here:
-        run: dotnet run --project AllMarketPlacesCombined/AllMarketPlacesCombined.csproj
-        
+        run: dotnet run
+
       - name: Upload Sync Log
+        if: always() # Run even if the program crashes
         uses: actions/upload-artifact@v4
         with:
           name: marketplace-sync-log
-          path: sync_log.txt
-          retention-days: 7 # Keeps the log for 7 days
+          # Point to the log file inside the project folder
+          path: AllMarketPlacesCombined/sync_log.txt
