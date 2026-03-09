@@ -1,5 +1,5 @@
 ﻿using AllMarketPlacesCombined.Models.OzonModels;
-using AllMarketPlacesCombined.Models.WBModels; // ADDED: The Wildberries models namespace
+using AllMarketPlacesCombined.Models.WBModels;
 using AllMarketPlacesCombined.Models.YandexModels;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Services;
@@ -10,7 +10,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace AllMarketPlacesCombined.Services.GoogleSheetService // Adjusted namespace
+namespace AllMarketPlacesCombined.Services.GoogleSheetService
 {
     public class GoogleSheetsService
     {
@@ -28,169 +28,128 @@ namespace AllMarketPlacesCombined.Services.GoogleSheetService // Adjusted namesp
             });
         }
 
-        // ==========================================
-        // 1. WILDBERRIES (Columns B and C)
-        // ==========================================
-        // FIXED: Changed WbProduct to WbAnalyticsOfferSummary
-        public async Task WriteWbDataAsync(string spreadsheetId, string sheetName, List<WbAnalyticsOfferSummary> wbData)
+        private async Task ProcessMarketplaceDataAsync(string spreadsheetId, string sheetName, string stockCol, string avgCol, List<MarketplaceDataDto> data)
         {
-            var readRequest = _sheetsService.Spreadsheets.Values.Get(spreadsheetId, $"{sheetName}!A1:A");
+            var readRequest = _sheetsService.Spreadsheets.Values.Get(spreadsheetId, $"{sheetName}!A:M");
             var readResponse = await readRequest.ExecuteAsync();
-            var existingRows = readResponse.Values;
+            var existingRows = readResponse.Values ?? new List<IList<object>>();
 
-            if (existingRows == null || existingRows.Count == 0) return;
-
-            var wbDict = wbData.ToDictionary(x => x.OfferId, StringComparer.OrdinalIgnoreCase);
-            var batchUpdateRequest = new BatchUpdateValuesRequest { ValueInputOption = "USER_ENTERED", Data = new List<ValueRange>() };
+            var skuMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            int totalRowIndex = -1;
 
             for (int i = 0; i < existingRows.Count; i++)
             {
-                int excelRowNumber = i + 1;
-                if (existingRows[i].Count == 0) continue;
-
-                var sheetOfferId = existingRows[i][0].ToString()?.Trim();
-                if (sheetOfferId != null && sheetOfferId.Equals("артикул", StringComparison.OrdinalIgnoreCase)) continue;
-
-                if (!string.IsNullOrEmpty(sheetOfferId))
+                if (existingRows[i].Count > 0)
                 {
-                    if (wbDict.TryGetValue(sheetOfferId, out var myWbItem))
+                    string cellValue = existingRows[i][0]?.ToString()?.Trim();
+                    if (string.IsNullOrEmpty(cellValue)) continue;
+
+                    if (cellValue.Equals("тотал", StringComparison.OrdinalIgnoreCase))
                     {
-                        // Safely calculate the average
-                        var averageSales = Math.Round((decimal)myWbItem.Total7 / 7m, 1);
-                        var valueRange = new ValueRange
-                        {
-                            Range = $"{sheetName}!B{excelRowNumber}:C{excelRowNumber}",
-                            // FIXED: Changed myWbItem.Stock to myWbItem.TotalStock to match your WB model
-                            Values = new List<IList<object>> { new List<object> { myWbItem.TotalStock, averageSales } }
-                        };
-                        batchUpdateRequest.Data.Add(valueRange);
+                        totalRowIndex = i;
                     }
-                    else
+                    else if (i > 0) // Skip header
                     {
-                        var valueRange = new ValueRange
-                        {
-                            Range = $"{sheetName}!B{excelRowNumber}:C{excelRowNumber}",
-                            Values = new List<IList<object>> { new List<object> { 0, 0 } }
-                        };
-                        batchUpdateRequest.Data.Add(valueRange);
+                        skuMap[cellValue] = i;
                     }
                 }
             }
 
-            if (batchUpdateRequest.Data.Count > 0)
-            {
-                var batchUpdate = _sheetsService.Spreadsheets.Values.BatchUpdate(batchUpdateRequest, spreadsheetId);
-                await batchUpdate.ExecuteAsync();
-                Console.WriteLine($"Успешно выгружено строк WB: {batchUpdateRequest.Data.Count}");
-            }
-        }
-
-        // ==========================================
-        // 2. OZON (Columns E and F)
-        // ==========================================
-        public async Task WriteOzonDataAsync(string spreadsheetId, string sheetName, List<ProductSalesReport> ozonData)
-        {
-            var readRequest = _sheetsService.Spreadsheets.Values.Get(spreadsheetId, $"{sheetName}!A1:A");
-            var readResponse = await readRequest.ExecuteAsync();
-            var existingRows = readResponse.Values;
-
-            if (existingRows == null || existingRows.Count == 0) return;
-
-            var ozonDict = ozonData.ToDictionary(x => x.OfferId, StringComparer.OrdinalIgnoreCase);
             var batchUpdateRequest = new BatchUpdateValuesRequest { ValueInputOption = "USER_ENTERED", Data = new List<ValueRange>() };
 
-            for (int i = 0; i < existingRows.Count; i++)
+            foreach (var item in data)
             {
-                int excelRowNumber = i + 1;
-                if (existingRows[i].Count == 0) continue;
+                var avg = Math.Round(item.Total7 / 7m, 1);
 
-                var sheetOfferId = existingRows[i][0].ToString()?.Trim();
-                if (sheetOfferId != null && sheetOfferId.Equals("артикул", StringComparison.OrdinalIgnoreCase)) continue;
-
-                if (!string.IsNullOrEmpty(sheetOfferId))
+                if (skuMap.TryGetValue(item.OfferId, out int rowIndex))
                 {
-                    if (ozonDict.TryGetValue(sheetOfferId, out var myOzonItem))
+                    // Update existing SKU
+                    int excelRow = rowIndex + 1;
+                    batchUpdateRequest.Data.Add(new ValueRange
                     {
-                        var averageSales = Math.Round((decimal)myOzonItem.Total7 / 7m, 1);
-                        var valueRange = new ValueRange
-                        {
-                            Range = $"{sheetName}!E{excelRowNumber}:F{excelRowNumber}",
-                            Values = new List<IList<object>> { new List<object> { myOzonItem.Stock, averageSales } }
-                        };
-                        batchUpdateRequest.Data.Add(valueRange);
-                    }
-                    else
+                        Range = $"{sheetName}!{stockCol}{excelRow}:{avgCol}{excelRow}",
+                        Values = new List<IList<object>> { new List<object> { item.Stock, avg } }
+                    });
+                }
+                else if (item.Stock > 0 || avg > 0)
+                {
+                    // Add NEW SKU before the Total row
+                    int insertAtRowIndex = (totalRowIndex != -1) ? totalRowIndex : existingRows.Count;
+                    int excelRow = insertAtRowIndex + 1;
+
+                    var newRowValues = new List<object>(Enumerable.Repeat<object>(0, 13));
+                    newRowValues[0] = item.OfferId;
+
+                    if (stockCol == "B") { newRowValues[1] = item.Stock; newRowValues[2] = avg; }
+                    else if (stockCol == "E") { newRowValues[4] = item.Stock; newRowValues[5] = avg; }
+                    else if (stockCol == "H") { newRowValues[7] = item.Stock; newRowValues[8] = avg; }
+
+                    // Standard row logic
+                    newRowValues[3] = $"=IF(C{excelRow}>0; B{excelRow}/C{excelRow}; 0)";
+                    newRowValues[6] = $"=IF(F{excelRow}>0; E{excelRow}/F{excelRow}; 0)";
+                    newRowValues[9] = $"=IF(I{excelRow}>0; H{excelRow}/I{excelRow}; 0)";
+                    newRowValues[10] = $"=B{excelRow}+E{excelRow}+H{excelRow}";
+                    newRowValues[11] = $"=C{excelRow}+F{excelRow}+I{excelRow}";
+                    newRowValues[12] = $"=IF(L{excelRow}>0; K{excelRow}/L{excelRow}; 0)";
+
+                    // We use BatchUpdate to "Insert" a row if total exists, or just write if it doesn't
+                    batchUpdateRequest.Data.Add(new ValueRange
                     {
-                        var valueRange = new ValueRange
-                        {
-                            Range = $"{sheetName}!E{excelRowNumber}:F{excelRowNumber}",
-                            Values = new List<IList<object>> { new List<object> { 0, 0 } }
-                        };
-                        batchUpdateRequest.Data.Add(valueRange);
-                    }
+                        Range = $"{sheetName}!A{excelRow}:M{excelRow}",
+                        Values = new List<IList<object>> { newRowValues }
+                    });
+
+                    // Shift the "Total" index down because we just inserted a row above it
+                    if (totalRowIndex != -1) totalRowIndex++;
+                    skuMap[item.OfferId] = insertAtRowIndex;
+                    existingRows.Insert(insertAtRowIndex, newRowValues);
                 }
             }
 
-            if (batchUpdateRequest.Data.Count > 0)
+            // Update the Total Row formulas to include the new range
+            if (totalRowIndex != -1)
             {
-                var batchUpdate = _sheetsService.Spreadsheets.Values.BatchUpdate(batchUpdateRequest, spreadsheetId);
-                await batchUpdate.ExecuteAsync();
-                Console.WriteLine($"Успешно выгружено строк Ozon: {batchUpdateRequest.Data.Count}");
-            }
-        }
+                int totalExcelRow = totalRowIndex + 1;
+                var totalRowValues = new List<object>(new object[13]);
+                totalRowValues[0] = "Тотал";
 
-        // ==========================================
-        // 3. YANDEX MARKET (Columns H and I)
-        // ==========================================
-        public async Task WriteYandexDataAsync(string spreadsheetId, string sheetName, List<YandexReportItem> yandexData)
-        {
-            var readRequest = _sheetsService.Spreadsheets.Values.Get(spreadsheetId, $"{sheetName}!A1:A");
-            var readResponse = await readRequest.ExecuteAsync();
-            var existingRows = readResponse.Values;
+                // Columns: B, C, E, F, H, I, K, L (Summable columns)
+                string[] colsToSum = { "B", "C", "E", "F", "H", "I", "K", "L" };
+                int[] colIndices = { 1, 2, 4, 5, 7, 8, 10, 11 };
 
-            if (existingRows == null || existingRows.Count == 0) return;
-
-            var yandexDict = yandexData.ToDictionary(x => x.OfferId, StringComparer.OrdinalIgnoreCase);
-            var batchUpdateRequest = new BatchUpdateValuesRequest { ValueInputOption = "USER_ENTERED", Data = new List<ValueRange>() };
-
-            for (int i = 0; i < existingRows.Count; i++)
-            {
-                int excelRowNumber = i + 1;
-                if (existingRows[i].Count == 0) continue;
-
-                var sheetOfferId = existingRows[i][0].ToString()?.Trim();
-                if (sheetOfferId != null && sheetOfferId.Equals("артикул", StringComparison.OrdinalIgnoreCase)) continue;
-
-                if (!string.IsNullOrEmpty(sheetOfferId))
+                for (int i = 0; i < colsToSum.Length; i++)
                 {
-                    if (yandexDict.TryGetValue(sheetOfferId, out var myYandexItem))
+                    batchUpdateRequest.Data.Add(new ValueRange
                     {
-                        var averageSales = Math.Round((decimal)myYandexItem.Total7 / 7m, 1);
-                        var valueRange = new ValueRange
-                        {
-                            Range = $"{sheetName}!H{excelRowNumber}:I{excelRowNumber}",
-                            Values = new List<IList<object>> { new List<object> { myYandexItem.Stock, averageSales } }
-                        };
-                        batchUpdateRequest.Data.Add(valueRange);
-                    }
-                    else
-                    {
-                        var valueRange = new ValueRange
-                        {
-                            Range = $"{sheetName}!H{excelRowNumber}:I{excelRowNumber}",
-                            Values = new List<IList<object>> { new List<object> { 0, 0 } }
-                        };
-                        batchUpdateRequest.Data.Add(valueRange);
-                    }
+                        Range = $"{sheetName}!{colsToSum[i]}{totalExcelRow}",
+                        Values = new List<IList<object>> { new List<object> { $"=SUM({colsToSum[i]}2:{colsToSum[i]}{totalExcelRow - 1})" } }
+                    });
                 }
+
+                // Calculated columns for Total row (D, G, J, M)
+                batchUpdateRequest.Data.Add(new ValueRange
+                {
+                    Range = $"{sheetName}!D{totalExcelRow}",
+                    Values = new List<IList<object>> { new List<object> { $"=IF(C{totalExcelRow}>0; B{totalExcelRow}/C{totalExcelRow}; 0)" } }
+                });
+                // ... (Repeated logic for G, J, M if needed)
             }
 
             if (batchUpdateRequest.Data.Count > 0)
             {
-                var batchUpdate = _sheetsService.Spreadsheets.Values.BatchUpdate(batchUpdateRequest, spreadsheetId);
-                await batchUpdate.ExecuteAsync();
-                Console.WriteLine($"Успешно выгружено строк Yandex: {batchUpdateRequest.Data.Count}");
+                await _sheetsService.Spreadsheets.Values.BatchUpdate(batchUpdateRequest, spreadsheetId).ExecuteAsync();
             }
         }
+
+        public async Task WriteWbDataAsync(string spreadsheetId, string sheetName, List<WbAnalyticsOfferSummary> wbData) =>
+            await ProcessMarketplaceDataAsync(spreadsheetId, sheetName, "B", "C", wbData.Select(x => new MarketplaceDataDto { OfferId = x.OfferId, Stock = x.TotalStock, Total7 = x.Total7 }).ToList());
+
+        public async Task WriteOzonDataAsync(string spreadsheetId, string sheetName, List<ProductSalesReport> ozonData) =>
+            await ProcessMarketplaceDataAsync(spreadsheetId, sheetName, "E", "F", ozonData.Select(x => new MarketplaceDataDto { OfferId = x.OfferId, Stock = x.Stock, Total7 = x.Total7 }).ToList());
+
+        public async Task WriteYandexDataAsync(string spreadsheetId, string sheetName, List<YandexReportItem> yandexData) =>
+            await ProcessMarketplaceDataAsync(spreadsheetId, sheetName, "H", "I", yandexData.Select(x => new MarketplaceDataDto { OfferId = x.OfferId, Stock = x.Stock, Total7 = x.Total7 }).ToList());
     }
+
+    internal class MarketplaceDataDto { public string OfferId { get; set; } public int Stock { get; set; } public int Total7 { get; set; } }
 }

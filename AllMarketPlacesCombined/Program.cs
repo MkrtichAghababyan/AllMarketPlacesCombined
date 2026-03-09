@@ -1,17 +1,18 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
 
-// Importing your specific namespaces based on the files you provided
+// Your Project Namespaces
 using AllMarketPlacesCombined.Models.OzonModels;
 using AllMarketPlacesCombined.Models.WBModels;
 using AllMarketPlacesCombined.Models.YandexModels;
 using AllMarketPlacesCombined.Services.OzonServices;
 using AllMarketPlacesCombined.Services.WbServices;
 using AllMarketPlacesCombined.Services.YandexServices;
-using AllMarketPlacesCombined.Services.GoogleSheetService; // Google Sheets namespace
+using AllMarketPlacesCombined.Services.GoogleSheetService;
 
 namespace AllMarketPlacesCombined
 {
@@ -19,125 +20,87 @@ namespace AllMarketPlacesCombined
     {
         static async Task Main(string[] args)
         {
-            Console.WriteLine("=== ЗАПУСК ИНТЕГРАЦИИ МАРКЕТПЛЕЙСОВ ===");
+            // --- LOGGING SETUP ---
+            List<string> syncLogs = new List<string>();
+            Action<string> Log = (msg) => {
+                string entry = $"[{DateTime.Now:HH:mm:ss}] {msg}";
+                Console.WriteLine(entry);
+                syncLogs.Add(entry);
+            };
 
-            // ==========================================
-            // 1. НАСТРОЙКИ И ТОКЕНЫ 
-            // ==========================================
+            Log("=== STARTING MARKETPLACE SYNC ===");
 
-            // Google Sheets
-            string credentialsFilePath = "google-credentials.json";
-            string spreadsheetId = "1DIQ5Cqt-2jpJJmdjrNpba-HLhTNRJFeRu-heiN4wck4";
-            string sheetName = "Лист1";
+            // --- CONFIGURATION (GitHub Secrets or Local) ---
+            string credentialsFilePath = "credentials.json";
+            string spreadsheetId = Environment.GetEnvironmentVariable("SHEET_ID") ?? "1DIQ5Cqt-2jpJJmdjrNpba-HLhTNRJFeRu-heiN4wck4";
+            string sheetName = Environment.GetEnvironmentVariable("SHEET_NAME") ?? "Лист1";
 
-            // API Tokens
-            string wbToken = "eyJhbGciOiJFUzI1NiIsImtpZCI6IjIwMjYwMzAydjEiLCJ0eXAiOiJKV1QifQ.eyJhY2MiOjEsImVudCI6MSwiZXhwIjoxNzg4NDEwMjAzLCJpZCI6IjAxOWNiOWI1LTc2NzAtN2E5MS05OTlmLTZkNmNhMDM0MjI0MCIsImlpZCI6MTYyNDAxMTQsIm9pZCI6MzkzODg0MywicyI6MTA3Mzc1Nzk1MCwic2lkIjoiOTkzNjZhMGEtN2Q0Ny00ODk0LThlZDUtOGNmODJjYzlkZDVmIiwidCI6ZmFsc2UsInVpZCI6MTYyNDAxMTR9.VC-aqiBKabhbSh8stWpthNG75h09czB_E1yAOrKswCjiayh3mmpGsWOKqZEftHdFvd7DRrxJy1cDepRGh0_ySA";
-            string ozonClientId = "1527418";
-            string ozonApiKey = "69f6c9a9-bcee-41c7-9303-3fabefd2e918";
-            string yandexToken = "ACMA:fGgY4Rs0VXHz5hwj7Tj03025XcJtilYSkm6TwoI8:1af126e3";
+            string wbToken = Environment.GetEnvironmentVariable("WB_TOKEN") ?? "YOUR_LOCAL_WB_TOKEN";
+            string ozonClientId = Environment.GetEnvironmentVariable("OZON_CLIENT_ID") ?? "1527418";
+            string ozonApiKey = Environment.GetEnvironmentVariable("OZON_API_KEY") ?? "69f6c9a9-bcee-41c7-9303-3fabefd2e918";
+            string yandexToken = Environment.GetEnvironmentVariable("YANDEX_TOKEN") ?? "ACMA:fGgY4Rs0VXHz5hwj7Tj03025XcJtilYSkm6TwoI8:1af126e3";
 
-            // Shared HttpClient for WB service to keep things fast
-            using var sharedHttpClient = new HttpClient();
+            using var httpClient = new HttpClient();
 
-            // ==========================================
-            // 2. ИНИЦИАЛИЗАЦИЯ СЕРВИСОВ
-            // ==========================================
-
-            // GOOGLE SHEETS ВАРИАНТ ТЕПЕРЬ АКТИВЕН!
-            var googleSheetsService = new GoogleSheetsService(credentialsFilePath);
-
-            var wbApiService = new WbAnalyticsService(wbToken, sharedHttpClient);
-            var ozonApiService = new OzonApiService(ozonClientId, ozonApiKey);
-            var yandexApiService = new YandexApiService(yandexToken);
+            // --- SERVICE INITIALIZATION ---
+            var googleSheets = new GoogleSheetsService(credentialsFilePath);
+            var wbService = new WbAnalyticsService(wbToken, httpClient);
+            var ozonService = new OzonApiService(ozonClientId, ozonApiKey);
+            var yandexService = new YandexApiService(yandexToken);
 
             try
             {
-                // ==========================================
-                // 3. WILDBERRIES
-                // ==========================================
-                Console.WriteLine("\n[1/3] Загрузка данных Wildberries...");
+                // 1. WILDBERRIES
+                Log("[1/3] Fetching Wildberries Data...");
+                DateTime to = DateTime.UtcNow.Date.AddDays(-1);
+                DateTime from = to.AddDays(-6);
+                var wbData = await wbService.GetTotalsAndDaysForAllOffersAsync(from, to);
+                Log($"Found {wbData.Count} WB products. Updating Sheet...");
+                await googleSheets.WriteWbDataAsync(spreadsheetId, sheetName, wbData);
 
-                DateTime wbRangeTo = DateTime.UtcNow.Date.AddDays(-1);
-                DateTime wbRangeFrom = wbRangeTo.AddDays(-6);
+                // 2. OZON
+                Log("[2/3] Fetching Ozon Data...");
+                var ozonStocks = await ozonService.GetStocksAsync();
+                var fboSales = await ozonService.GetSalesReportAsync(DateTime.UtcNow, "FBO", ozonStocks.Products, ozonStocks.SkuToOfferId);
+                var fbsSales = await ozonService.GetSalesReportAsync(DateTime.UtcNow, "FBS", ozonStocks.Products, ozonStocks.SkuToOfferId);
 
-                var wbData = await wbApiService.GetTotalsAndDaysForAllOffersAsync(wbRangeFrom, wbRangeTo);
-                Console.WriteLine($"Скачано товаров WB: {wbData.Count}");
-
-                Console.WriteLine("Обновление Google Таблицы (Wildberries)...");
-                await googleSheetsService.WriteWbDataAsync(spreadsheetId, sheetName, wbData);
-
-
-                // ==========================================
-                // 4. OZON
-                // ==========================================
-                Console.WriteLine("\n[2/3] Загрузка данных Ozon...");
-
-                var ozonStocks = await ozonApiService.GetStocksAsync();
-                Console.WriteLine($"Найдено товаров в стоке Ozon: {ozonStocks.Products.Count}");
-
-                var fboSales = await ozonApiService.GetSalesReportAsync(DateTime.UtcNow, "FBO", ozonStocks.Products, ozonStocks.SkuToOfferId);
-                var fbsSales = await ozonApiService.GetSalesReportAsync(DateTime.UtcNow, "FBS", ozonStocks.Products, ozonStocks.SkuToOfferId);
-
-                var allOzonSalesDict = new Dictionary<string, ProductSalesReport>(StringComparer.OrdinalIgnoreCase);
-
-                Action<List<ProductSalesReport>> mergeOzonData = (reports) => {
-                    foreach (var r in reports)
-                    {
-                        if (!allOzonSalesDict.TryGetValue(r.OfferId, out var existing))
-                        {
-                            allOzonSalesDict[r.OfferId] = r;
-                        }
-                        else
-                        {
-                            existing.Total7 += r.Total7;
-                            existing.AvgPerDay = existing.Total7 / 7m;
-                            existing.Revenue7 += r.Revenue7;
-                        }
-                    }
-                };
-
-                mergeOzonData(fboSales);
-                mergeOzonData(fbsSales);
-
-                var finalOzonData = allOzonSalesDict.Values.ToList();
-                Console.WriteLine($"Скачано отчетов о продажах Ozon (FBO+FBS): {finalOzonData.Count}");
-
-                // РАСКОММЕНТИРОВАНО: Запись в таблицу Ozon
-                Console.WriteLine("Обновление Google Таблицы (Ozon)...");
-                await googleSheetsService.WriteOzonDataAsync(spreadsheetId, sheetName, finalOzonData);
-
-
-                // ==========================================
-                // 5. YANDEX MARKET
-                // ==========================================
-                Console.WriteLine("\n[3/3] Загрузка данных Yandex Market...");
-                var masterYandexList = new List<YandexReportItem>();
-
-                var campaigns = await yandexApiService.GetCampaignsAsync();
-                Console.WriteLine($"Найдено магазинов Яндекса: {campaigns.Count}");
-
-                foreach (var campaign in campaigns)
+                // Merge FBO and FBS
+                var ozonDict = new Dictionary<string, ProductSalesReport>(StringComparer.OrdinalIgnoreCase);
+                foreach (var r in fboSales.Concat(fbsSales))
                 {
-                    string campId = campaign.Id.ToString();
-                    await yandexApiService.GetStocksAsync(campId, masterYandexList);
-                    await yandexApiService.Get7DaySalesAsync(campId, masterYandexList);
+                    if (!ozonDict.TryGetValue(r.OfferId, out var existing))
+                        ozonDict[r.OfferId] = r;
+                    else
+                        existing.Total7 += r.Total7;
                 }
+                Log($"Found {ozonDict.Count} Ozon products. Updating Sheet...");
+                await googleSheets.WriteOzonDataAsync(spreadsheetId, sheetName, ozonDict.Values.ToList());
 
-                Console.WriteLine($"Всего уникальных товаров Yandex собрано: {masterYandexList.Count}");
+                // 3. YANDEX
+                Log("[3/3] Fetching Yandex Data...");
+                var yandexList = new List<YandexReportItem>();
+                var campaigns = await yandexService.GetCampaignsAsync();
+                foreach (var camp in campaigns)
+                {
+                    await yandexService.GetStocksAsync(camp.Id.ToString(), yandexList);
+                    await yandexService.Get7DaySalesAsync(camp.Id.ToString(), yandexList);
+                }
+                Log($"Found {yandexList.Count} Yandex products. Updating Sheet...");
+                await googleSheets.WriteYandexDataAsync(spreadsheetId, sheetName, yandexList);
 
-                // РАСКОММЕНТИРОВАНО: Запись в таблицу Yandex
-                Console.WriteLine("Обновление Google Таблицы (Yandex)...");
-                await googleSheetsService.WriteYandexDataAsync(spreadsheetId, sheetName, masterYandexList);
-
-                // ==========================================
-                // ГОТОВО!
-                // ==========================================
-                Console.WriteLine("\n=== ВСЕ ДАННЫЕ УСПЕШНО СОБРАНЫ И ВЫГРУЖЕНЫ В GOOGLE ТАБЛИЦУ! ===");
+                Log("=== SYNC COMPLETED SUCCESSFULLY ===");
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"\n[КРИТИЧЕСКАЯ ОШИБКА]: {ex.Message}");
-                Console.WriteLine(ex.StackTrace);
+                Log("!!! CRITICAL ERROR !!!");
+                Log(ex.Message);
+                Log(ex.StackTrace ?? "No stack trace available.");
+            }
+            finally
+            {
+                // Save the log file
+                Log("Saving log file...");
+                await File.WriteAllLinesAsync("sync_log.txt", syncLogs);
             }
         }
     }
