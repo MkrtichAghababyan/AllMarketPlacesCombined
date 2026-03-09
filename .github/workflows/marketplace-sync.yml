@@ -6,8 +6,8 @@ on:
   pull_request:
     branches: [ "master", "main" ]
   schedule:
-    - cron: '5 17 * * *' # 09:00 AM Yerevan Time
-  workflow_dispatch: 
+    - cron: '30 17 * * *'
+  workflow_dispatch:
 
 jobs:
   build-and-run:
